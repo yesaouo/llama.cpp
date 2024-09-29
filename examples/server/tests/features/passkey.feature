@@ -15,7 +15,6 @@ Feature: Passkey / Self-extend with context shift
     And   <n_junk> as number of junk
     And   <n_predicted> server max tokens to predict
     And   42 as seed
-    And   0.0 temperature
     And   <n_ctx> KV cache size
     And   1 slots
     And   <n_ga> group attention factor to extend context size through self-extend
@@ -23,8 +22,7 @@ Feature: Passkey / Self-extend with context shift
     # Can be override with N_GPU_LAYERS
     And   <ngl> GPU offloaded layers
     Then  the server is starting
-    # Higher timeout because the model may need to be downloaded from the internet
-    Then  the server is healthy with timeout 120 seconds
+    Then  the server is healthy
     Given available models
     Then  model 0 is trained on <n_ctx_train> tokens context
     Given a prefix prompt:

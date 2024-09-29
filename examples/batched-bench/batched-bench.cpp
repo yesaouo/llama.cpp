@@ -1,27 +1,48 @@
-#include "arg.h"
 #include "common.h"
-#include "log.h"
 #include "llama.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
 
-static void print_usage(int, char ** argv) {
-    LOG("\nexample usage:\n");
-    LOG("\n    %s -m model.gguf -c 2048 -b 2048 -ub 512 -npp 128,256,512 -ntg 128,256 -npl 1,2,4,8,16,32 [-pps]\n", argv[0]);
-    LOG("\n");
+// mutates the input string
+static std::vector<int> parse_list(char * p) {
+    std::vector<int> ret;
+
+    char * q = p;
+
+    while (*p) {
+        if (*p == ',') {
+            *p = '\0';
+            ret.push_back(std::atoi(q));
+            q = p + 1;
+        }
+
+        ++p;
+    }
+
+    ret.push_back(std::atoi(q));
+
+    return ret;
+}
+
+static void print_usage(int argc, char ** argv, const gpt_params & params) {
+    gpt_params_print_usage(argc, argv, params);
+
+    LOG_TEE("\nexample usage:\n");
+    LOG_TEE("\n    %s -m model.gguf -c 2048 -b 2048 -ub 512 -npp 128,256,512 -ntg 128,256 -npl 1,2,4,8,16,32 [-pps]\n", argv[0]);
+    LOG_TEE("\n");
 }
 
 int main(int argc, char ** argv) {
     gpt_params params;
 
-    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_BENCH, print_usage)) {
+    if (!gpt_params_parse(argc, argv, params)) {
+        print_usage(argc, argv, params);
         return 1;
     }
-
-    gpt_init();
 
     int is_pp_shared = params.is_pp_shared;
 
@@ -79,7 +100,7 @@ int main(int argc, char ** argv) {
 
             const int ret = llama_decode(ctx, batch_view);
             if (ret != 0) {
-                LOG_ERR("failed to decode the batch, n_batch = %d, ret = %d\n", n_batch, ret);
+                LOG_TEE("failed to decode the batch, n_batch = %d, ret = %d\n", n_batch, ret);
                 return false;
             }
 
@@ -96,18 +117,17 @@ int main(int argc, char ** argv) {
         }
 
         if (!decode_helper(ctx, batch, ctx_params.n_batch)) {
-            LOG_ERR("%s: llama_decode() failed\n", __func__);
+            LOG_TEE("%s: llama_decode() failed\n", __func__);
             return 1;
         }
     }
 
-    if (!params.batched_bench_output_jsonl) {
-        LOG("\n");
-        LOG("%s: n_kv_max = %d, n_batch = %d, n_ubatch = %d, flash_attn = %d, is_pp_shared = %d, n_gpu_layers = %d, n_threads = %u, n_threads_batch = %u\n", __func__, n_kv_max, params.n_batch, params.n_ubatch, params.flash_attn, params.is_pp_shared, params.n_gpu_layers, ctx_params.n_threads, ctx_params.n_threads_batch);
-        LOG("\n");
-        LOG("|%6s | %6s | %4s | %6s | %8s | %8s | %8s | %8s | %8s | %8s |\n", "PP", "TG", "B", "N_KV", "T_PP s", "S_PP t/s", "T_TG s", "S_TG t/s", "T s", "S t/s");
-        LOG("|%6s-|-%6s-|-%4s-|-%6s-|-%8s-|-%8s-|-%8s-|-%8s-|-%8s-|-%8s-|\n", "------", "------", "----", "------", "--------", "--------", "--------", "--------", "--------", "--------");
-    }
+    LOG_TEE("\n");
+    LOG_TEE("%s: n_kv_max = %d, n_batch = %d, n_ubatch = %d, flash_attn = %d, is_pp_shared = %d, n_gpu_layers = %d, n_threads = %u, n_threads_batch = %u\n", __func__, n_kv_max, params.n_batch, params.n_ubatch, params.flash_attn, params.is_pp_shared, params.n_gpu_layers, ctx_params.n_threads, ctx_params.n_threads_batch);
+    LOG_TEE("\n");
+
+    LOG_TEE("|%6s | %6s | %4s | %6s | %8s | %8s | %8s | %8s | %8s | %8s |\n", "PP",     "TG",     "B",    "N_KV",     "T_PP s",   "S_PP t/s", "T_TG s",   "S_TG t/s", "T s",      "S t/s");
+    LOG_TEE("|%6s-|-%6s-|-%4s-|-%6s-|-%8s-|-%8s-|-%8s-|-%8s-|-%8s-|-%8s-|\n", "------", "------", "----", "------", "--------", "--------", "--------", "--------", "--------", "--------");
 
     for (        int i_pp = 0; i_pp < (int) n_pp.size(); ++i_pp) {
         for (    int i_tg = 0; i_tg < (int) n_tg.size(); ++i_tg) {
@@ -136,7 +156,7 @@ int main(int argc, char ** argv) {
                 llama_kv_cache_clear(ctx);
 
                 if (!decode_helper(ctx, batch, ctx_params.n_batch)) {
-                    LOG_ERR("%s: llama_decode() failed\n", __func__);
+                    LOG_TEE("%s: llama_decode() failed\n", __func__);
                     return 1;
                 }
 
@@ -158,7 +178,7 @@ int main(int argc, char ** argv) {
                     }
 
                     if (!decode_helper(ctx, batch, ctx_params.n_batch)) {
-                        LOG_ERR("%s: llama_decode() failed\n", __func__);
+                        LOG_TEE("%s: llama_decode() failed\n", __func__);
                         return 1;
                     }
                 }
@@ -175,22 +195,12 @@ int main(int argc, char ** argv) {
                 const float speed_tg = pl*tg / t_tg;
                 const float speed    = n_kv / t;
 
-                if(params.batched_bench_output_jsonl) {
-                    LOG(
-                        "{\"n_kv_max\": %d, \"n_batch\": %d, \"n_ubatch\": %d, \"flash_attn\": %d, \"is_pp_shared\": %d, \"n_gpu_layers\": %d, \"n_threads\": %u, \"n_threads_batch\": %u, "
-                        "\"pp\": %d, \"tg\": %d, \"pl\": %d, \"n_kv\": %d, \"t_pp\": %f, \"speed_pp\": %f, \"t_tg\": %f, \"speed_tg\": %f, \"t\": %f, \"speed\": %f}\n",
-                        n_kv_max, params.n_batch, params.n_ubatch, params.flash_attn, params.is_pp_shared, params.n_gpu_layers, ctx_params.n_threads, ctx_params.n_threads_batch,
-                        pp, tg, pl, n_kv, t_pp, speed_pp, t_tg, speed_tg, t, speed
-                    );
-                } else {
-                    LOG("|%6d | %6d | %4d | %6d | %8.3f | %8.2f | %8.3f | %8.2f | %8.3f | %8.2f |\n", pp, tg, pl, n_kv, t_pp, speed_pp, t_tg, speed_tg, t, speed);
-                }
+                LOG_TEE("|%6d | %6d | %4d | %6d | %8.3f | %8.2f | %8.3f | %8.2f | %8.3f | %8.2f |\n", pp, tg, pl, n_kv, t_pp, speed_pp, t_tg, speed_tg, t, speed);
             }
         }
     }
 
-    LOG("\n");
-    llama_perf_context_print(ctx);
+    llama_print_timings(ctx);
 
     llama_batch_free(batch);
 
@@ -199,7 +209,7 @@ int main(int argc, char ** argv) {
 
     llama_backend_free();
 
-    LOG("\n\n");
+    fprintf(stderr, "\n\n");
 
     return 0;
 }

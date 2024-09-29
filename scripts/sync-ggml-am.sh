@@ -5,7 +5,7 @@
 # Usage:
 #
 #   $ cd /path/to/llama.cpp
-#   $ ./scripts/sync-ggml-am.sh -skip hash0,hash1,hash2... -C 3
+#   $ ./scripts/sync-ggml-am.sh -skip hash0,hash1,hash2...
 #
 
 set -e
@@ -25,23 +25,9 @@ lc=$(cat $SRC_LLAMA/scripts/sync-ggml.last)
 echo "Syncing ggml changes since commit $lc"
 
 to_skip=""
-
-# context for git patches in number of lines
-ctx="8"
-
-while [ "$1" != "" ]; do
-    case $1 in
-        -skip )
-            shift
-            to_skip=$1
-            ;;
-        -C )
-            shift
-            ctx=$1
-            ;;
-    esac
-    shift
-done
+if [ "$1" == "-skip" ]; then
+    to_skip=$2
+fi
 
 cd $SRC_GGML
 
@@ -66,7 +52,7 @@ while read c; do
         fi
     fi
 
-    git format-patch -U${ctx} -k $c~1..$c --stdout -- \
+    git format-patch -k $c~1..$c --stdout -- \
         CMakeLists.txt \
         src/CMakeLists.txt \
         cmake/FindSIMD.cmake \
@@ -205,7 +191,7 @@ if [ -f $SRC_LLAMA/ggml-src.patch ]; then
         > ggml-src.patch.tmp
     mv ggml-src.patch.tmp ggml-src.patch
 
-    git am -C${ctx} ggml-src.patch
+    git am ggml-src.patch
 
     rm -v $SRC_LLAMA/ggml-src.patch
 fi
